@@ -62,7 +62,13 @@ class Place:
             self.bees.remove(insect)
         else:
             assert self.ant == insect, '{0} is not in {1}'.format(insect, self)
-            self.ant = self.ant.ant if self.ant.ant else None
+            if self.ant.container:
+                # Possibly remove only a container ant
+                self.ant = self.ant.ant if self.ant.ant else None
+            elif isinstance(self.ant, QueenAnt) and self.ant.true_queen:
+                return # The true (first) queen cannot be removed
+            else:
+                self.ant = None
 
         insect.place = None
 
@@ -594,27 +600,73 @@ class QueenPlace:
     (2) The place in which the QueenAnt resides.
     """
     def __init__(self, colony_queen, ant_queen):
-        "*** YOUR CODE HERE ***"
+        self._colony_queen = colony_queen
+        self._ant_queen = ant_queen
 
     @property
     def bees(self):
-        "*** YOUR CODE HERE ***"
+        return self._colony_queen.bees + self._ant_queen.bees
 
 class QueenAnt(ScubaThrower):
     """The Queen of the colony.  The game is over if a bee enters her place."""
 
     name = 'Queen'
-    "*** YOUR CODE HERE ***"
-    implemented = False
+    food_cost = 6
+    num_queens = 0
+    true_queen = False
+    implemented = True
 
     def __init__(self):
         ScubaThrower.__init__(self, 1)
-        "*** YOUR CODE HERE ***"
+        if QueenAnt.num_queens == 0:
+            self.true_queen = True
+            QueenAnt.num_queens = 1
+            self.doubled_ants = set()
 
     def action(self, colony):
         """A queen ant throws a leaf, but also doubles the damage of ants
-        in her tunnel.  Impostor queens do only one thing: die."""
-        "*** YOUR CODE HERE ***"
+        in her tunnel.  Impostor queens do only one thing: die.
+        Note: Any ants protected by a bodyguard also get double damage.
+        Once an ant's damage has doubled, it cannot be doubled again.
+        """
+        if not self.true_queen:
+            self.reduce_armor(self.armor)
+            return
+        colony.queen = QueenPlace(colony.queen, self.place)
+
+        # Idempotently double the damage of fellow ants in the queen's tunnel.
+        fellows = self.get_tunnel_fellows()
+        for ant in (fellows - self.doubled_ants):
+            ant.damage *= 2
+        self.doubled_ants = self.doubled_ants.union(fellows)
+
+        ScubaThrower.action(self, colony)
+
+    def get_tunnel_fellows(self):
+        """Collect fellow ants in this place's tunnel in a set. """
+        ants = set()
+        if self.place.ant is not self: # this QueenAnt is contained
+            ants.add(self.place.ant)
+
+        # Collect ants toward hive
+        here = self.place.entrance
+        while here is not None:
+            if here.ant:
+                if here.ant.container and here.ant.ant:
+                    ants.add(here.ant.ant)
+                ants.add(here.ant)
+            here = here.entrance
+
+        # Collect ants toward original queen location
+        here = self.place.exit
+        while here is not None:
+            if here.ant:
+                if here.ant.container and here.ant.ant:
+                    ants.add(here.ant.ant)
+                ants.add(here.ant)
+            here = here.exit
+
+        return ants
 
 class AntRemover(Ant):
     """Allows the player to remove ants from the board in the GUI."""
